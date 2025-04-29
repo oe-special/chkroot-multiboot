@@ -1,7 +1,7 @@
 SUMMARY = "Initramfs image for kexec multiboot"
 DESCRIPTION = "This image provides kexec multiboot (linux as bootloader) and helpers."
 
-PACKAGE_INSTALL = "busybox rsync initramfs-kexec kexec ${ROOTFS_BOOTSTRAP_INSTALL}"
+PACKAGE_INSTALL = "busybox rsync initramfs-kexec ${ROOTFS_BOOTSTRAP_INSTALL}"
 
 # Do not pollute the initrd image with rootfs features
 IMAGE_FEATURES = ""

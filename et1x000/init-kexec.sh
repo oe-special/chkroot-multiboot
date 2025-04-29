@@ -8,7 +8,7 @@ mount -t sysfs none /sys
 mount -t devtmpfs none /dev
 
 # Default root and boot device
-ROOT="/dev/mmcblk0p2"
+ROOT="/dev/mmcblk0p4"
 BOOT="/dev/mmcblk0boot1"
 ORIGINAL_ROOT="$ROOT"
 
@@ -20,13 +20,12 @@ while [ ! -b "$ROOT" ]; do
   mdev -s
 done
 
-echo 0 > /sys/block/mmcblk0boot1/force_ro
-
-echo "[init] ROOT found: $ROOT"
-echo "[init] BOOT found: $BOOT"
+echo "[init] ROOT found:$ROOT"
+echo "[init] BOOT found:$BOOT"
 ROOTSUBDIR=""
 HAS_STARTUP=0
 HAS_MOVEROOT=0
+
 
 #wait for USB switch to initialize
 sleep 2
@@ -100,26 +99,21 @@ if ! mount -n "$ROOT" /newroot; then
   exec sh
 fi
 
-# Skip the root move if ROOT was changed from its default value
-if [ "$ROOT" = "$ORIGINAL_ROOT" ]; then
-  # Skip the root move if no STARTUP file is found
-  if [ "$HAS_STARTUP" -eq 1 ]; then
-    # Handle initial move if necessary
-    if [ ! -d "/newroot/linuxrootfs1" ]; then
-      echo "[init] Moving root contents to /newroot/linuxrootfs1"
-      mkdir -p /newroot/linuxrootfs1
-      rsync -aAX --remove-source-files --exclude=linuxrootfs1 /newroot/ /newroot/linuxrootfs1/
-      echo "[init] Root contents moved to /newroot/linuxrootfs1"
-      
-      # Clean up the moved directories in /newroot
-      find /newroot/ -mindepth 1 -maxdepth 1 ! -name linuxrootfs1 -exec rm -rf {} +
-      HAS_MOVEROOT=1
-    fi
-  else
-    echo "[init] Skipping root move, no STARTUP file"
+# Skip the root move if no STARTUP file is found
+if [ "$HAS_STARTUP" -eq 1 ]; then
+  # Handle initial move if necessary
+  if [ ! -d "/newroot/linuxrootfs1" ]; then
+    echo "[init] Moving root contents to /newroot/linuxrootfs1"
+    mkdir -p /newroot/linuxrootfs1
+    rsync -aAX --remove-source-files --exclude=linuxrootfs1 /newroot/ /newroot/linuxrootfs1/
+    echo "[init] Root contents moved to /newroot/linuxrootfs1"
+    
+    # Clean up the moved directories in /newroot
+    find /newroot/ -mindepth 1 -maxdepth 1 ! -name linuxrootfs1 -exec rm -rf {} +
+    HAS_MOVEROOT=1
   fi
 else
-  echo "[init] ROOT was modified, skipping move"
+  echo "[init] Skipping root move, no STARTUP file"
 fi
 
 NEWROOT=""
@@ -215,84 +209,6 @@ if [ ! -f /etc/.guest ] && [ "$IMAGE_NUMBER" != "1" ]; then
     touch $NEWROOT/etc/.guest
 fi
 
-# DreamOS Detection
-if [ -f "$NEWROOT/etc/init.d/systemd-udevd" ] && [ ! -f /etc/.guest ]; then
-    echo "[init] DreamOS found, prepare Target OS."
-
-    [ -f $NEWROOT/etc/image-version ] && version_content=$(cat $NEWROOT/etc/image-version)
-    [ -f $NEWROOT/etc/issue.net ] && issue_content=$(cat $NEWROOT/etc/issue.net)
-
-    creator=""
-    distro=""
-    compile_date=""
-    version_nr=""
-
-    image_creator=$(echo "$version_content" | grep '^creator=' | cut -d'=' -f2-)
-    build_version=$(echo "$version_content" | grep '^version=' | cut -d'=' -f2)
-    comment=$(echo "$version_content" | grep '^comment=' | cut -d'=' -f2)
-
-    if echo "$image_creator" | grep -qi "Merlin"; then
-        # Merlin
-        creator="Merlin"
-        distro="Merlin"
-        version_nr="$comment"
-
-        year=$(echo "$build_version" | cut -c5-8)
-        month=$(echo "$build_version" | cut -c9-10)
-        day=$(echo "$build_version" | cut -c11-12)
-        compile_date="${year}-${month}-${day}"
-
-    elif echo "$image_creator" | grep -qi "newnigma2"; then
-        # Newnigma2
-        creator="newnigma2"
-        distro="newnigma2"
-
-        datepart=$(echo "$build_version" | awk -F'-' '{print $3}')
-        version_nr="$datepart"
-
-        datepart=$(echo "$build_version" | awk -F'-' '{print $3}')
-        year=$(echo "$datepart" | cut -c1-4)
-        month=$(echo "$datepart" | cut -c5-6)
-        day=$(echo "$datepart" | cut -c7-8)
-        compile_date="${year}-${month}-${day}"
-
-    elif echo "$issue_content" | grep -qi "opendreambox"; then
-        # OpenDreambox
-        creator="Dreambox"
-        distro="Dreambox"
-
-        version_nr=$(echo "$issue_content" | grep -i "opendreambox" | sed 's/[^0-9\.]*\([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/')
-
-        year=$(echo "$build_version" | cut -c5-8)
-        month=$(echo "$build_version" | cut -c9-10)
-        day=$(echo "$build_version" | cut -c11-12)
-        compile_date="${year}-${month}-${day}"
-
-    else
-        # Standard: Gemini etc.
-        creator=$(echo "$issue_content" | grep "Project" | sed 's/[*]//g' | sed 's/^ *//;s/ *$//')
-        version_nr=$(echo "$creator" | sed 's/[^0-9\.]*\([0-9]\+\.[0-9]\+\).*/\1/')
-
-        case "$creator" in
-            *Gemini*) distro="GP4" ;;
-            *) distro="DreamOS" ;;
-        esac
-
-        year=$(echo "$build_version" | cut -c5-8)
-        month=$(echo "$build_version" | cut -c9-10)
-        day=$(echo "$build_version" | cut -c11-12)
-        compile_date="${year}-${month}-${day}"
-    fi
-
-cat <<EOF > $NEWROOT/etc/image-version
-creator=$creator
-distro=$distro
-compile-date=$compile_date
-version=$version_nr
-EOF
-
-fi
-
 # Final checks before switch_root
 if [ -z "$NEWROOT" ]; then
   echo "[init] No NEWROOT set — dropping to shell"
@@ -315,4 +231,3 @@ exec switch_root "$NEWROOT" /sbin/init
 
 echo "[init] switch_root failed — dropping to shell"
 exec sh
-

@@ -28,13 +28,48 @@ ROOTSUBDIR=""
 HAS_STARTUP=0
 HAS_MOVEROOT=0
 
-# Try mounting BOOT partition (FAT expected)
+#wait for USB switch to initialize
+sleep 2
+mdev -s
+RECOVERY_STARTUP=""
+for device in mmcblk1 mmcblk1p1 sda sda1 sdb sdb1 sdc sdc1 sdd sdd1
+do
+  if [ ! -b /dev/$device ]; then
+      continue
+  fi
+  mkdir -p /tmp/$device
+  mount -n /dev/$device /tmp/$device 2>/dev/null
+  [ -f /tmp/$device/STARTUP_RECOVERY ];
+  RC=$?
+  if [ $RC = 0 ]; then
+    echo "[init]STARTUP_RECOVERY found on /dev/$device"
+    RECOVERY_STARTUP=$(cat /tmp/$device/STARTUP_RECOVERY)
+    umount /tmp/$device
+    break
+  fi
+  umount /tmp/$device 2>/dev/null
+done
+
 mkdir -p /boot
 if mount -t vfat "$BOOT" /boot 2>/dev/null; then
   echo "[init] $BOOT mounted as FAT"
 
-  # If STARTUP file exists, read it
-  if [ -f /boot/STARTUP ]; then
+  if [ -n "$RECOVERY_STARTUP" ]; then
+    echo "[init] Using STARTUP_RECOVERY content"
+    for x in $RECOVERY_STARTUP; do
+      case "$x" in
+        root=*)
+          ROOT="${x#root=}"
+          echo "[init] Overriding ROOT from RECOVERY: $ROOT"
+          ;;
+        rootsubdir=*)
+          ROOTSUBDIR="${x#rootsubdir=}"
+          HAS_STARTUP=1
+          echo "[init] Setting ROOTSUBDIR from RECOVERY: $ROOTSUBDIR"
+          ;;
+      esac
+    done
+  elif [ -f /boot/STARTUP ]; then
     echo "[init] Reading /boot/STARTUP"
     for x in $(cat /boot/STARTUP); do
       case "$x" in
@@ -89,7 +124,7 @@ fi
 
 NEWROOT=""
 IMAGE_FOUND=0
-IMAGE_NUMBER=""
+IMAGE_NUMBER="1"
 
 # Check if /sbin/ldconfig exists in ROOT
 if [ ! -f "/newroot/sbin/ldconfig" ]; then
@@ -100,19 +135,10 @@ if [ ! -f "/newroot/sbin/ldconfig" ]; then
     echo "[init] Found /sbin/ldconfig in /newroot/$ROOTSUBDIR"
     NEWROOT="/newroot/$ROOTSUBDIR"
     IMAGE_FOUND=1
-    case "$ROOTSUBDIR" in
-      *linuxrootfs1) IMAGE_NUMBER=1 ;;
-      *linuxrootfs2) IMAGE_NUMBER=2 ;;
-      *linuxrootfs3) IMAGE_NUMBER=3 ;;
-      *linuxrootfs4) IMAGE_NUMBER=4 ;;
-      *linuxrootfs5) IMAGE_NUMBER=5 ;;
-      *linuxrootfs6) IMAGE_NUMBER=6 ;;
-      *linuxrootfs7) IMAGE_NUMBER=7 ;;
-      *linuxrootfs8) IMAGE_NUMBER=8 ;;
-    esac
+    IMAGE_NUMBER=$(echo "$ROOTSUBDIR" | sed -n 's/.*linuxrootfs\([0-9]\+\).*/\1/p')
   else
     # Check linuxrootfs1 to linuxrootfs4
-    for i in 1 2 3 4 5 6 7 8; do
+    for i in $(seq 1 20); do
       if [ -d "/newroot/linuxrootfs$i" ] && [ -f "/newroot/linuxrootfs$i/sbin/ldconfig" ]; then
         echo "[init] Fallback: Found valid root at /newroot/linuxrootfs$i"
         NEWROOT="/newroot/linuxrootfs$i"
@@ -171,11 +197,11 @@ else
   NEWROOT="/newroot"
 fi
 
-# DreamOS Detection
-if [ -f "$NEWROOT/etc/init.d/systemd-udevd" ] && [ ! -f /etc/.guest ]; then
-    echo "[init] DreamOS found, prepare Target OS."
+# guest Detection
+if [ ! -f /etc/.guest ] && [ "$IMAGE_NUMBER" != "1" ]; then
+    echo "[init] prepare Target OS."
     mkdir -p /newroot/oldroot
-    mount -n "$ROOT" /newroot/oldroot
+    mount -n "$ORIGINAL_ROOT" /newroot/oldroot
     if [ -d "/newroot/oldroot/linuxrootfs1/lib/modules/" ]; then
         rm -rf $NEWROOT/lib/modules/*
         rsync -aAX /newroot/oldroot/linuxrootfs1/lib/modules/ $NEWROOT/lib/modules/
@@ -187,6 +213,13 @@ if [ -f "$NEWROOT/etc/init.d/systemd-udevd" ] && [ ! -f /etc/.guest ]; then
     fi
     umount /newroot/oldroot
     touch $NEWROOT/etc/.guest
+fi
+
+
+# DreamOS Detection
+if [ -f "$NEWROOT/etc/init.d/systemd-udevd" ] && [ ! -f /etc/.guest ]; then
+    echo "[init] DreamOS found, prepare Target OS."
+
     [ -f $NEWROOT/etc/image-version ] && version_content=$(cat $NEWROOT/etc/image-version)
     [ -f $NEWROOT/etc/issue.net ] && issue_content=$(cat $NEWROOT/etc/issue.net)
 
