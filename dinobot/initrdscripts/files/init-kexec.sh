@@ -17,7 +17,7 @@ for i in /sys/block/mmcblk0/mmcblk0p*; do
     devname=`cat /$i/uevent | grep DEVNAME | cut -d '=' -f 2`
 
     case "$partname" in
-      rootfs)
+      rootfs|exrootfs)
         ROOT="/dev/$devname"
         ORIGINAL_ROOT="$ROOT"
         ;;
